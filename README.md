@@ -23,7 +23,7 @@ cargo run --release
 
 Run
 ```bash
-lookup
+domain_lookup
 ```
 
 ### Usage
