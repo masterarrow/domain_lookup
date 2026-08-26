@@ -5,6 +5,8 @@ use axum::{
 };
 use std::net::SocketAddr;
 use tower_governor::{governor::GovernorConfigBuilder, GovernorLayer};
+use tower_http::trace::TraceLayer;
+use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 use domain_lookup::{
     AppState,
     Config,
@@ -46,6 +48,23 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
        }
    });
 
+    // Set up logging to a file with daily rotation
+    let file_appender = tracing_appender::rolling::daily("logs", "app.log");
+    let (non_blocking, _guard) = tracing_appender::non_blocking(file_appender);
+
+    // Initialize tracing subscriber
+    tracing_subscriber::registry()
+        .with(
+            tracing_subscriber::EnvFilter::try_from_default_env()
+                .unwrap_or_else(|_| "domain_lookup=debug,tower_http=debug".into()),
+        )
+        .with(
+            tracing_subscriber::fmt::layer()
+                .with_ansi(false)
+                .with_writer(non_blocking)
+        )
+        .init();
+
     // Axum routes
     let app = Router::new()
         .route("/info", get(domain_info))
@@ -56,6 +75,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         .route("/ssl-check", get(ssl_lookup))
         .route("/health", get(health_check))
         .layer(GovernorLayer::new(governor_conf))
+        .layer(TraceLayer::new_for_http())
         .with_state(state);
 
     let addr = SocketAddr::from(([0, 0, 0, 0], port));
