@@ -28,7 +28,7 @@ domain_lookup
 
 ### Usage
 
-Domain WHOIS and DNS lookup
+Domain WHOIS, NS and subdomain lookup
 ```bash
 curl -X GET http://localhost:3000/info?domain=google.com
 ```
