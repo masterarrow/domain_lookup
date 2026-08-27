@@ -1,7 +1,7 @@
 pub mod config;
 pub mod client;
 
-use std::{sync::Arc};
+use std::{collections::HashMap, sync::Arc};
 use axum::{
     http::StatusCode,
     extract::{Query, State},
@@ -11,6 +11,8 @@ use axum::{
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use reqwest::RequestBuilder;
+use validator::{Validate, ValidationError};
+use regex::Regex;
 
 pub use config::Config;
 pub use client::HttpClient;
@@ -20,15 +22,40 @@ pub struct AppState {
     pub client: Arc<HttpClient>,
 }
 
-#[derive(Deserialize, Serialize)]
+#[derive(Deserialize, Serialize, Validate)]
 pub struct RequestParams {
+    #[validate(custom(function = "validate_domain"))]
     domain: String,
+}
+
+fn validate_domain(domain: &str) -> Result<(), ValidationError> {
+    let domain_regex = Regex::new(
+        r"^(?i)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,}$"
+    ).unwrap();
+
+    if !domain_regex.is_match(domain) {
+        let e = ValidationError {
+            code: "domain".into(),
+            message: Some("Invalid domain name provided.".into()),
+            params: HashMap::new(),
+        };
+        return Err(e);
+    }
+
+    Ok(())
 }
 
 pub async fn domain_info(
     State(state): State<AppState>,
     Query(params): Query<RequestParams>,
 ) -> Result<impl IntoResponse, StatusCode> {
+    if let Err(errors) = params.validate() {
+        return serialize_response(
+            ("result".to_string(), json!({"errors": errors.errors().get("domain")})),
+            StatusCode::BAD_REQUEST
+        );
+    }
+
     let domain = params.domain;
 
     let whois_req = lookup(state.client.whois_lookup(&domain));
@@ -61,6 +88,12 @@ pub async fn domain_lookup(
     State(state): State<AppState>,
     Query(params): Query<RequestParams>,
 ) -> Result<impl IntoResponse, StatusCode> {
+    if let Err(errors) = params.validate() {
+        return serialize_response(
+            ("result".to_string(), json!({"errors": errors.errors().get("domain")})),
+            StatusCode::BAD_REQUEST
+        );
+    }
     let lookup_data = lookup(state.client.domain_lookup(&params.domain)).await?;
 
     serialize_response(("result".to_string(), lookup_data), StatusCode::OK)
@@ -70,6 +103,12 @@ pub async fn whois_lookup(
     State(state): State<AppState>,
     Query(params): Query<RequestParams>,
 ) -> Result<impl IntoResponse, StatusCode> {
+    if let Err(errors) = params.validate() {
+        return serialize_response(
+            ("result".to_string(), json!({"errors": errors.errors().get("domain")})),
+            StatusCode::BAD_REQUEST
+        );
+    }
     let lookup_data = lookup(state.client.whois_lookup(&params.domain)).await?;
 
     serialize_response(("result".to_string(), lookup_data), StatusCode::OK)
@@ -79,6 +118,12 @@ pub async fn ns_lookup(
     State(state): State<AppState>,
     Query(params): Query<RequestParams>,
 ) -> Result<impl IntoResponse, StatusCode> {
+    if let Err(errors) = params.validate() {
+        return serialize_response(
+            ("result".to_string(), json!({"errors": errors.errors().get("domain")})),
+            StatusCode::BAD_REQUEST
+        );
+    }
     let lookup_data = lookup(state.client.ns_lookup(&params.domain)).await?;
 
     serialize_response(("result".to_string(), lookup_data), StatusCode::OK)
@@ -88,6 +133,12 @@ pub async fn subdomain_lookup(
     State(state): State<AppState>,
     Query(params): Query<RequestParams>,
 ) -> Result<impl IntoResponse, StatusCode> {
+    if let Err(errors) = params.validate() {
+        return serialize_response(
+            ("result".to_string(), json!({"errors": errors.errors().get("domain")})),
+            StatusCode::BAD_REQUEST
+        );
+    }
     let lookup_data = lookup(state.client.subdomain_lookup(&params.domain)).await?;
 
     serialize_response(("result".to_string(), lookup_data), StatusCode::OK)
@@ -97,6 +148,12 @@ pub async fn ssl_lookup(
     State(state): State<AppState>,
     Query(params): Query<RequestParams>,
 ) -> Result<impl IntoResponse, StatusCode> {
+    if let Err(errors) = params.validate() {
+        return serialize_response(
+            ("result".to_string(), json!({"errors": errors.errors().get("domain")})),
+            StatusCode::BAD_REQUEST
+        );
+    }
     let lookup_data = lookup(state.client.ssl_lookup(&params.domain)).await?;
 
     serialize_response(("result".to_string(), lookup_data), StatusCode::OK)
@@ -127,9 +184,7 @@ fn serialize_response(data: (String, serde_json::Value), code: StatusCode) -> Re
     let res = json!({
         "code": code.as_u16(),
         "success": code == StatusCode::OK,
-        "payload": {
-            key: val
-        }
+        key: val,
     });
 
     Ok((code, Json(res)))
